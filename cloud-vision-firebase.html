@@ -290,6 +290,12 @@
                 <button class="btn active" onclick="setTool('draw')">✏️ Draw</button>
                 <button class="btn" onclick="setTool('erase')">🧹 Erase</button>
                 <input type="color" id="color" value="#ff0000">
+                <div style="display: flex; align-items: center; gap: 5px; flex: 1; min-width: 100px;">
+                    <span style="font-size: 0.8em; color: #7f8c8d;">Size:</span>
+                    <input type="range" id="brushSize" min="1" max="20" value="3" onchange="setBrushSize(this.value)" style="flex: 1;">
+                </div>
+                <button class="btn" onclick="undo()" id="undoBtn">↶ Undo</button>
+                <button class="btn" onclick="redo()" id="redoBtn">↷ Redo</button>
                 <button class="btn" onclick="clearCanvas()">Clear</button>
                 <button class="btn" onclick="nextImage()">Next</button>
             </div>
@@ -405,9 +411,12 @@
     <script>
         let canvas, ctx, drawing = false;
         let tool = 'draw', color = '#ff0000';
+        let brushSize = 3;
         let images = [];
         let currentIdx = 0;
         let allVisions = [];
+        let drawingHistory = [];
+        let historyStep = -1;
 
         function init() {
             canvas = document.getElementById('canvas');
@@ -422,6 +431,9 @@
             canvas.addEventListener('mousedown', start);
             canvas.addEventListener('mousemove', move);
             canvas.addEventListener('mouseup', stop);
+            
+            // Initialize with blank state
+            saveState();
         }
 
         function resize() {
@@ -457,19 +469,79 @@
             
             if (tool === 'erase') {
                 ctx.globalCompositeOperation = 'destination-out';
-                ctx.lineWidth = 20;
+                ctx.lineWidth = brushSize * 3;
             } else {
                 ctx.globalCompositeOperation = 'source-over';
                 ctx.strokeStyle = document.getElementById('color').value;
-                ctx.lineWidth = 3;
+                ctx.lineWidth = brushSize;
             }
             
             ctx.lineTo(pos.x, pos.y);
             ctx.stroke();
         }
 
+        function setBrushSize(size) {
+            brushSize = parseInt(size);
+        }
+
         function stop() {
-            drawing = false;
+            if (drawing) {
+                drawing = false;
+                saveState();
+            }
+        }
+
+        function saveState() {
+            // Remove any states after current step
+            drawingHistory = drawingHistory.slice(0, historyStep + 1);
+            // Save current canvas state
+            drawingHistory.push(canvas.toDataURL());
+            historyStep++;
+            // Limit history to 20 steps
+            if (drawingHistory.length > 20) {
+                drawingHistory.shift();
+                historyStep--;
+            }
+            updateUndoRedoButtons();
+        }
+
+        function undo() {
+            if (historyStep > 0) {
+                historyStep--;
+                restoreState(drawingHistory[historyStep]);
+                updateUndoRedoButtons();
+            }
+        }
+
+        function redo() {
+            if (historyStep < drawingHistory.length - 1) {
+                historyStep++;
+                restoreState(drawingHistory[historyStep]);
+                updateUndoRedoButtons();
+            }
+        }
+
+        function restoreState(dataUrl) {
+            const img = new Image();
+            img.onload = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0);
+            };
+            img.src = dataUrl;
+        }
+
+        function updateUndoRedoButtons() {
+            const undoBtn = document.getElementById('undoBtn');
+            const redoBtn = document.getElementById('redoBtn');
+            
+            if (undoBtn) {
+                undoBtn.style.opacity = historyStep > 0 ? '1' : '0.5';
+                undoBtn.disabled = historyStep <= 0;
+            }
+            if (redoBtn) {
+                redoBtn.style.opacity = historyStep < drawingHistory.length - 1 ? '1' : '0.5';
+                redoBtn.disabled = historyStep >= drawingHistory.length - 1;
+            }
         }
 
         function setTool(t) {
@@ -481,6 +553,9 @@
 
         function clearCanvas() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawingHistory = [];
+            historyStep = -1;
+            saveState();
         }
 
         function nextImage() {
@@ -605,23 +680,61 @@
 
         function extractTags(text) {
             const synonymMap = {
-                'sandal': ['sandal', 'sandals', 'flip-flop', 'flip-flops', 'flipflop', 'flipflops', 'thong', 'thongs', 'shoe'],
-                'dog': ['dog', 'dogs', 'puppy', 'puppies', 'doggy', 'pooch', 'canine'],
-                'cat': ['cat', 'cats', 'kitty', 'kitten', 'kittens', 'feline'],
-                'bird': ['bird', 'birds', 'birdie'],
-                'dragon': ['dragon', 'dragons', 'drake'],
-                'face': ['face', 'faces', 'head', 'heads'],
-                'person': ['person', 'people', 'human', 'humans', 'man', 'woman', 'figure'],
-                'horse': ['horse', 'horses', 'pony', 'ponies'],
+                'test': ['test', 'tests', 'exam', 'exams', 'quiz', 'quizzes', 'assessment'],
+                'sandal': ['sandal', 'sandals', 'flip-flop', 'flip-flops', 'flipflop', 'flipflops', 'thong', 'thongs', 'shoe', 'shoes'],
+                'dog': ['dog', 'dogs', 'puppy', 'puppies', 'doggy', 'pooch', 'canine', 'hound', 'pup'],
+                'cat': ['cat', 'cats', 'kitty', 'kitten', 'kittens', 'feline', 'tabby'],
+                'bird': ['bird', 'birds', 'birdie', 'avian'],
+                'dragon': ['dragon', 'dragons', 'drake', 'serpent', 'wyvern'],
+                'face': ['face', 'faces', 'head', 'heads', 'portrait'],
+                'person': ['person', 'people', 'human', 'humans', 'man', 'woman', 'figure', 'body', 'silhouette'],
+                'horse': ['horse', 'horses', 'pony', 'ponies', 'mare', 'stallion', 'mustang'],
                 'fish': ['fish', 'fishes'],
-                'rabbit': ['rabbit', 'rabbits', 'bunny', 'bunnies', 'hare'],
+                'rabbit': ['rabbit', 'rabbits', 'bunny', 'bunnies', 'hare', 'hares'],
                 'elephant': ['elephant', 'elephants'],
-                'castle': ['castle', 'castles', 'fortress', 'palace'],
-                'mountain': ['mountain', 'mountains', 'peak', 'peaks', 'hill', 'hills'],
+                'castle': ['castle', 'castles', 'fortress', 'palace', 'tower', 'fort'],
+                'mountain': ['mountain', 'mountains', 'peak', 'peaks', 'hill', 'hills', 'volcano'],
                 'heart': ['heart', 'hearts'],
-                'angel': ['angel', 'angels'],
-                'monster': ['monster', 'monsters', 'creature', 'beast'],
-                'dinosaur': ['dinosaur', 'dinosaurs', 'dino', 'dinos', 't-rex', 'trex']
+                'angel': ['angel', 'angels', 'cherub', 'seraph'],
+                'monster': ['monster', 'monsters', 'creature', 'beast', 'demon'],
+                'dinosaur': ['dinosaur', 'dinosaurs', 'dino', 'dinos', 't-rex', 'trex', 'raptor'],
+                'skull': ['skull', 'skulls', 'skeleton', 'death'],
+                'tree': ['tree', 'trees', 'forest', 'oak', 'pine'],
+                'flower': ['flower', 'flowers', 'rose', 'bloom', 'blossom'],
+                'butterfly': ['butterfly', 'butterflies', 'moth'],
+                'snake': ['snake', 'snakes', 'serpent', 'cobra', 'viper'],
+                'lion': ['lion', 'lions', 'lioness'],
+                'bear': ['bear', 'bears', 'grizzly', 'polar'],
+                'wolf': ['wolf', 'wolves'],
+                'eagle': ['eagle', 'eagles', 'hawk', 'falcon'],
+                'whale': ['whale', 'whales', 'orca', 'dolphin'],
+                'shark': ['shark', 'sharks'],
+                'octopus': ['octopus', 'octopi', 'squid'],
+                'alien': ['alien', 'aliens', 'ufo', 'extraterrestrial'],
+                'rocket': ['rocket', 'rockets', 'spaceship', 'spacecraft'],
+                'car': ['car', 'cars', 'vehicle', 'auto', 'automobile'],
+                'airplane': ['airplane', 'airplanes', 'plane', 'planes', 'jet', 'aircraft'],
+                'boat': ['boat', 'boats', 'ship', 'ships', 'vessel', 'sailboat'],
+                'hand': ['hand', 'hands', 'fist', 'palm', 'finger', 'fingers'],
+                'eye': ['eye', 'eyes'],
+                'smile': ['smile', 'smiling', 'grin', 'grinning', 'happy'],
+                'ghost': ['ghost', 'ghosts', 'spirit', 'spirits', 'specter'],
+                'wizard': ['wizard', 'wizards', 'witch', 'sorcerer', 'mage'],
+                'unicorn': ['unicorn', 'unicorns'],
+                'phoenix': ['phoenix', 'phoenixes'],
+                'mermaid': ['mermaid', 'mermaids', 'siren'],
+                'crown': ['crown', 'crowns', 'tiara'],
+                'sword': ['sword', 'swords', 'blade', 'katana'],
+                'shield': ['shield', 'shields'],
+                'book': ['book', 'books', 'tome', 'novel'],
+                'mushroom': ['mushroom', 'mushrooms', 'toadstool'],
+                'star': ['star', 'stars'],
+                'moon': ['moon', 'crescent'],
+                'sun': ['sun', 'sunshine'],
+                'planet': ['planet', 'planets', 'sphere'],
+                'galaxy': ['galaxy', 'galaxies', 'nebula'],
+                'wave': ['wave', 'waves', 'ocean', 'water'],
+                'flame': ['flame', 'flames', 'fire', 'blaze']
             };
 
             const words = text.toLowerCase()
@@ -732,6 +845,20 @@
             }
         }
 
+        async function deleteVision(visionId) {
+            if (!confirm('Delete this vision?')) return;
+            
+            try {
+                await window.firestore.deleteDoc(window.firestore.doc(window.db, 'visions', visionId));
+                await loadVisions();
+                loadStats();
+                alert('✅ Vision deleted!');
+            } catch (error) {
+                console.error('Error deleting vision:', error);
+                alert('Error deleting vision');
+            }
+        }
+
         function updateGrid() {
             const grid = document.getElementById('imageGrid');
             document.getElementById('count').textContent = images.length;
@@ -799,10 +926,19 @@
                 </div>
             `;
 
+            const currentUsername = localStorage.getItem('cloudvision-username') || 'Anonymous';
+            
             const cards = allVisions.map(v => `
                 <div class="card">
-                    <img src="${v.image}" style="border-bottom: 2px solid #ecf0f1;">
-                    <img src="${v.drawing}">
+                    <div style="position: relative;">
+                        <img src="${v.image}" style="display: block;">
+                        <img src="${v.drawing}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain;">
+                        ${v.username === currentUsername ? `
+                            <button onclick="deleteVision('${v.id}')" style="position: absolute; top: 10px; right: 10px; background: rgba(231,76,60,0.9); color: white; border: none; border-radius: 50%; width: 35px; height: 35px; font-size: 18px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+                                ×
+                            </button>
+                        ` : ''}
+                    </div>
                     <div class="card-body">
                         <strong>"${v.description}"</strong>
                         <div style="color: #3498db; font-size: 0.9em; margin-top: 5px;">
@@ -851,9 +987,22 @@
                     : 0;
                 document.getElementById('avgMatches').textContent = avgMatches;
 
+                // Count user contributions
+                const userCounts = {};
+                allVisions.forEach(v => {
+                    const username = v.username || 'Anonymous';
+                    userCounts[username] = (userCounts[username] || 0) + 1;
+                });
+
+                const topUsers = Object.entries(userCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 10);
+
                 const topThingsDiv = document.getElementById('topThings');
+                let html = '';
+
                 if (topTags.length > 0) {
-                    topThingsDiv.innerHTML = `
+                    html += `
                         <h4 style="margin: 15px 0 10px;">🏆 Most Seen Things</h4>
                         <div style="display: flex; flex-wrap: wrap; gap: 8px;">
                             ${topTags.map(([tag, count]) => 
@@ -862,6 +1011,25 @@
                         </div>
                     `;
                 }
+
+                if (topUsers.length > 0) {
+                    html += `
+                        <h4 style="margin: 20px 0 10px;">👥 Top Contributors</h4>
+                        <div style="background: white; border-radius: 10px; overflow: hidden;">
+                            ${topUsers.map(([username, count], index) => `
+                                <div style="padding: 12px 15px; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <span style="color: #95a5a6; font-weight: bold; margin-right: 10px;">#${index + 1}</span>
+                                        <span style="color: #2c3e50;">${username}</span>
+                                    </div>
+                                    <span style="background: #3498db; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.9em;">${count} vision${count === 1 ? '' : 's'}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                }
+
+                topThingsDiv.innerHTML = html;
             } catch (error) {
                 console.error('Error loading stats:', error);
             }
