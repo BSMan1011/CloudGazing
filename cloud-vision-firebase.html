@@ -313,8 +313,41 @@
                 ⬅️ Back to Drawing
             </button>
         </div>
-        <div class="gallery" id="galleryList">
-            <div class="loading">Loading visions...</div>
+        
+        <!-- Cloud Selector -->
+        <div id="cloudSelector" style="display: block;">
+            <div class="info" style="text-align: center; font-size: 1.1em; margin-bottom: 15px;">
+                <strong>Select a cloud to see interpretations</strong>
+            </div>
+            <div id="cloudGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px;"></div>
+        </div>
+        
+        <!-- Slideshow View -->
+        <div id="slideshowView" style="display: none;">
+            <div style="margin-bottom: 15px;">
+                <button class="btn" style="width: 100%;" onclick="exitSlideshow()">⬅️ Back to Cloud Selection</button>
+            </div>
+            
+            <div style="background: white; border-radius: 10px; padding: 15px; margin-bottom: 15px;">
+                <div style="position: relative; margin-bottom: 15px;">
+                    <img id="slideshowCloud" style="width: 100%; display: block; border-radius: 8px;">
+                    <canvas id="slideshowCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <button class="btn" onclick="prevDrawing()" style="flex: 1;">← Previous</button>
+                    <div style="flex: 1; text-align: center; padding: 10px; background: #ecf0f1; border-radius: 8px;">
+                        <span id="slideshowCounter" style="font-weight: bold;">1 / 1</span>
+                    </div>
+                    <button class="btn" onclick="nextDrawing()" style="flex: 1;">Next →</button>
+                </div>
+                
+                <div id="slideshowInfo" style="text-align: center;"></div>
+            </div>
+            
+            <button class="btn" style="width: 100%; background: #e74c3c; color: white; border: none;" onclick="deleteCurrentVision()" id="deleteSlideBtn" style="display: none;">
+                🗑️ Delete This Vision
+            </button>
         </div>
     </div>
 
@@ -417,6 +450,9 @@
         let allVisions = [];
         let drawingHistory = [];
         let historyStep = -1;
+        let slideshowImageIndex = null;
+        let slideshowVisions = [];
+        let slideshowCurrentIdx = 0;
 
         function init() {
             canvas = document.getElementById('canvas');
@@ -923,65 +959,141 @@
         }
 
         function updateGallery() {
-            const list = document.getElementById('galleryList');
+            const grid = document.getElementById('cloudGrid');
             
             if (allVisions.length === 0) {
-                list.innerHTML = '<div class="info">No visions yet! Be the first 🌤️</div>';
+                grid.innerHTML = '<div class="info">No visions yet! Be the first 🌤️</div>';
                 return;
             }
 
-            const header = `
-                <div class="info" style="text-align: center; font-size: 1.1em;">
-                    <strong>🎨 ${allVisions.length} Visions Shared</strong>
-                </div>
-            `;
+            // Group visions by image
+            const visionsByImage = {};
+            allVisions.forEach(v => {
+                if (!visionsByImage[v.imageIndex]) {
+                    visionsByImage[v.imageIndex] = [];
+                }
+                visionsByImage[v.imageIndex].push(v);
+            });
 
+            // Create cloud cards
+            grid.innerHTML = Object.entries(visionsByImage).map(([imageIdx, visions]) => {
+                const cloudImg = visions[0].image;
+                return `
+                    <div onclick="openSlideshow(${imageIdx})" style="cursor: pointer; position: relative; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+                        <img src="${cloudImg}" style="width: 100%; height: 150px; object-fit: cover; display: block;">
+                        <div style="position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.7); color: white; padding: 8px; text-align: center;">
+                            <strong>${visions.length}</strong> vision${visions.length === 1 ? '' : 's'}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function openSlideshow(imageIndex) {
+            slideshowImageIndex = parseInt(imageIndex);
+            slideshowVisions = allVisions.filter(v => v.imageIndex === slideshowImageIndex);
+            slideshowCurrentIdx = 0;
+            
+            document.getElementById('cloudSelector').style.display = 'none';
+            document.getElementById('slideshowView').style.display = 'block';
+            
+            showCurrentSlide();
+        }
+
+        function exitSlideshow() {
+            document.getElementById('cloudSelector').style.display = 'block';
+            document.getElementById('slideshowView').style.display = 'none';
+            slideshowImageIndex = null;
+        }
+
+        function showCurrentSlide() {
+            if (slideshowVisions.length === 0) return;
+            
+            const vision = slideshowVisions[slideshowCurrentIdx];
             const currentUsername = localStorage.getItem('cloudvision-username') || 'Anonymous';
             
-            const cards = allVisions.map(v => `
-                <div class="card">
-                    <div style="position: relative; overflow: hidden;">
-                        <img src="${v.image}" style="display: block; width: 100%; height: auto;">
-                        <canvas id="overlay-${v.id}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
-                        ${v.username === currentUsername ? `
-                            <button onclick="deleteVision('${v.id}')" style="position: absolute; top: 10px; right: 10px; background: rgba(231,76,60,0.9); color: white; border: none; border-radius: 50%; width: 35px; height: 35px; font-size: 18px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.3); z-index: 10;">
-                                ×
-                            </button>
-                        ` : ''}
-                    </div>
-                    <div class="card-body">
-                        <strong>"${v.description}"</strong>
-                        <div style="color: #3498db; font-size: 0.9em; margin-top: 5px;">
-                            👤 ${v.username || 'Anonymous'}
-                        </div>
-                        <div style="color: #7f8c8d; font-size: 0.9em; margin-top: 5px;">
-                            ${v.timestamp ? new Date(v.timestamp.toDate()).toLocaleDateString() : 'Recently'}
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-
-            list.innerHTML = header + cards;
+            // Update image
+            const cloudImg = document.getElementById('slideshowCloud');
+            cloudImg.src = vision.image;
             
-            // Render drawings on canvases after DOM update
+            // Update counter
+            document.getElementById('slideshowCounter').textContent = 
+                `${slideshowCurrentIdx + 1} / ${slideshowVisions.length}`;
+            
+            // Update info
+            const info = document.getElementById('slideshowInfo');
+            info.innerHTML = `
+                <div style="font-size: 1.2em; font-weight: bold; margin-bottom: 10px;">"${vision.description}"</div>
+                <div style="color: #3498db; margin-bottom: 5px;">👤 ${vision.username || 'Anonymous'}</div>
+                <div style="color: #7f8c8d; font-size: 0.9em;">
+                    ${vision.timestamp ? new Date(vision.timestamp.toDate()).toLocaleDateString() : 'Recently'}
+                </div>
+            `;
+            
+            // Show/hide delete button
+            const deleteBtn = document.getElementById('deleteSlideBtn');
+            if (vision.username === currentUsername) {
+                deleteBtn.style.display = 'block';
+            } else {
+                deleteBtn.style.display = 'none';
+            }
+            
+            // Draw on canvas
             setTimeout(() => {
-                allVisions.forEach(v => {
-                    const overlayCanvas = document.getElementById(`overlay-${v.id}`);
-                    if (overlayCanvas) {
-                        const parent = overlayCanvas.parentElement;
-                        const img = parent.querySelector('img');
-                        overlayCanvas.width = img.offsetWidth;
-                        overlayCanvas.height = img.offsetHeight;
-                        
-                        const overlayCtx = overlayCanvas.getContext('2d');
-                        const drawingImg = new Image();
-                        drawingImg.onload = () => {
-                            overlayCtx.drawImage(drawingImg, 0, 0, overlayCanvas.width, overlayCanvas.height);
-                        };
-                        drawingImg.src = v.drawing;
+                const slideshowCanvas = document.getElementById('slideshowCanvas');
+                slideshowCanvas.width = cloudImg.offsetWidth;
+                slideshowCanvas.height = cloudImg.offsetHeight;
+                
+                const slideCtx = slideshowCanvas.getContext('2d');
+                slideCtx.clearRect(0, 0, slideshowCanvas.width, slideshowCanvas.height);
+                
+                const drawingImg = new Image();
+                drawingImg.onload = () => {
+                    slideCtx.drawImage(drawingImg, 0, 0, slideshowCanvas.width, slideshowCanvas.height);
+                };
+                drawingImg.src = vision.drawing;
+            }, 50);
+        }
+
+        function nextDrawing() {
+            slideshowCurrentIdx = (slideshowCurrentIdx + 1) % slideshowVisions.length;
+            showCurrentSlide();
+        }
+
+        function prevDrawing() {
+            slideshowCurrentIdx = (slideshowCurrentIdx - 1 + slideshowVisions.length) % slideshowVisions.length;
+            showCurrentSlide();
+        }
+
+        async function deleteCurrentVision() {
+            if (!confirm('Delete this vision?')) return;
+            
+            const vision = slideshowVisions[slideshowCurrentIdx];
+            try {
+                await window.firestore.deleteDoc(window.firestore.doc(window.db, 'visions', vision.id));
+                
+                // Remove from array
+                slideshowVisions.splice(slideshowCurrentIdx, 1);
+                
+                if (slideshowVisions.length === 0) {
+                    // No more visions for this cloud
+                    exitSlideshow();
+                    await loadVisions();
+                } else {
+                    // Adjust index and show next
+                    if (slideshowCurrentIdx >= slideshowVisions.length) {
+                        slideshowCurrentIdx = 0;
                     }
-                });
-            }, 100);
+                    showCurrentSlide();
+                    await loadVisions();
+                }
+                
+                loadStats();
+                alert('✅ Vision deleted!');
+            } catch (error) {
+                console.error('Error deleting vision:', error);
+                alert('Error deleting vision');
+            }
         }
 
         async function loadStats() {
